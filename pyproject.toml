@@ -1,0 +1,36 @@
+[project]
+name = "expense-tracker"
+version = "0.1.0"
+description = "Async multi-currency expense tracker API (FastAPI, SQLAlchemy 2.0, PostgreSQL, Redis)"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "asyncpg>=0.32.0",
+    "email-validator>=2.4.0",
+    "fastapi>=0.163.2",
+    "pydantic>=2.14.3",
+    "pydantic-settings>=2.16.3",
+    "redis>=8.1.0",
+    "sqlalchemy[asyncio]>=2.1.9",
+    "uvicorn[standard]>=0.54.0",
+]
+
+# Local: uv sync (includes dev group)
+# Production image: uv sync --frozen --no-dev
+[dependency-groups]
+dev = [
+    "ruff>=0.17.5",
+]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+# ASYNC flags blocking calls (time.sleep, sync HTTP, open()) inside async functions —
+# the brief requires a fully async app, so the linter enforces it.
+select = ["E", "F", "I", "UP", "B", "ASYNC"]
+
+[tool.ruff.lint.flake8-bugbear]
+# FastAPI's dependency-injection idiom puts Depends(...) in argument defaults.
+extend-immutable-calls = ["fastapi.Depends", "fastapi.Query", "fastapi.Header"]

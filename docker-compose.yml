@@ -1,0 +1,36 @@
+# Expense Tracker — app containers only. PostgreSQL and Redis run on the Docker host
+# (same approach as AlphaPro); containers reach them via host.docker.internal.
+#
+#   docker compose up --build
+#
+# Credentials come from .env (copy .env.example). Docker Desktop resolves
+# host.docker.internal itself; on Linux, extra_hosts maps it to the host gateway.
+
+x-app-common: &app-common
+  build: .
+  env_file:
+    - path: .env
+      required: false
+  environment:
+    DB_HOST: host.docker.internal
+    REDIS_HOST: host.docker.internal
+  extra_hosts:
+    - "host.docker.internal:host-gateway"
+  restart: unless-stopped
+
+services:
+  api:
+    <<: *app-common
+    container_name: expense-tracker-api
+    ports:
+      - "${API_PORT:-8000}:8000"
+    healthcheck:
+      # The slim image has no curl; use the Python that is already there.
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+  # Later slices add here: a one-off `migrate` service (alembic upgrade head) that
+  # `api` waits for, and the arq `worker` — same image, different command.
