@@ -63,10 +63,12 @@ async def handle_http_exception(request: Request, exc: StarletteHTTPException) -
     # 405 -> "method_not_allowed".
     try:
         phrase = HTTPStatus(exc.status_code).phrase
-    except ValueError:
-        phrase = "error"
+    except ValueError:  # non-standard status, e.g. 599
+        phrase = "Error"
     code = phrase.lower().replace(" ", "_").replace("-", "_")
-    message = exc.detail if isinstance(exc.detail, str) else phrase
+    # Starlette sets detail to "" for statuses without a standard phrase; the envelope
+    # promises a non-empty message, so fall back to the phrase.
+    message = exc.detail if isinstance(exc.detail, str) and exc.detail else phrase
     return error_response(exc.status_code, code, message, headers=exc.headers)
 
 

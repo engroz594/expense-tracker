@@ -20,8 +20,28 @@ dependencies = [
 # Production image: uv sync --frozen --no-dev
 [dependency-groups]
 dev = [
+    "httpx>=0.28.1",
+    "pytest>=9.2.0",
+    "pytest-asyncio>=1.5.0",
+    "pytest-cov>=7.1.0",
     "ruff>=0.17.5",
 ]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]  # so tests can import main and app from the project root
+asyncio_mode = "auto"
+# One event loop for the whole session: the app's module-level engine and Redis client
+# keep pooled connections, and those are bound to the loop that opened them.
+asyncio_default_fixture_loop_scope = "session"
+asyncio_default_test_loop_scope = "session"
+addopts = "--cov=app --cov=routes --cov-report=term-missing"
+# The 85% gate is passed on the command line (pytest --cov-fail-under=85), not set as
+# fail_under in [tool.coverage.report]: pytest-cov would apply it to every run,
+# so a focused `pytest -k ...` would fail on coverage.
+
+[tool.coverage.report]
+exclude_also = ['if __name__ == "__main__":']
 
 [tool.ruff]
 line-length = 100
