@@ -5,6 +5,7 @@ description = "Async multi-currency expense tracker API (FastAPI, SQLAlchemy 2.0
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
+    "alembic>=1.20.1",
     "asyncpg>=0.32.0",
     "email-validator>=2.4.0",
     "fastapi>=0.163.2",

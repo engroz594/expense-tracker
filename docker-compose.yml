@@ -8,6 +8,8 @@
 
 x-app-common: &app-common
   build: .
+  # One image for every role (api, migrate, later the worker); only the command differs.
+  image: expense-tracker:local
   env_file:
     - path: .env
       required: false
@@ -19,9 +21,21 @@ x-app-common: &app-common
   restart: unless-stopped
 
 services:
+  # One-off: applies Alembic migrations, fills any missing exchange rates for the last
+  # 90 days (idempotent), then exits. Mirrors the release step on AWS (a one-off ECS
+  # task before the rolling deploy).
+  migrate:
+    <<: *app-common
+    container_name: expense-tracker-migrate
+    command: ["sh", "-c", "alembic upgrade head && python -m app.scripts.fill_exchange_rates"]
+    restart: "no"  # override the anchor: a finished one-off job must not be restarted
+
   api:
     <<: *app-common
     container_name: expense-tracker-api
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
     ports:
       - "${API_PORT:-8000}:8000"
     healthcheck:
@@ -32,5 +46,4 @@ services:
       retries: 3
       start_period: 10s
 
-  # Later slices add here: a one-off `migrate` service (alembic upgrade head) that
-  # `api` waits for, and the arq `worker` — same image, different command.
+  # Slice 10 adds the arq `worker` here — same image, different command.

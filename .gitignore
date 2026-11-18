@@ -22,6 +22,9 @@ dist/
 htmlcov/
 coverage.xml
 
+# Redis snapshot (written to the directory redis-server was started from)
+dump.rdb
+
 # IDE / OS
 .idea/
 .vscode/

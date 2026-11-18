@@ -28,7 +28,8 @@ WORKDIR /app
 COPY --from=builder /app/.venv /app/.venv
 COPY app ./app
 COPY routes ./routes
-COPY main.py ./
+COPY database ./database
+COPY main.py alembic.ini ./
 
 ENV PATH="/app/.venv/bin:$PATH" \
     PYTHONUNBUFFERED=1
@@ -37,5 +38,5 @@ USER app
 
 EXPOSE 8000
 
-# The same image also runs the worker and migrations (later slices) with a different command.
+# The same image also runs migrations (`alembic upgrade head`) and, later, the worker.
 CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]
