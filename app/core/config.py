@@ -39,6 +39,17 @@ class Settings(BaseSettings):
     # makes the probe fail fast instead of hanging the load balancer check.
     READINESS_TIMEOUT_SECONDS: float = 2.0
 
+    # Signs access tokens (HS256). Required: a missing secret must fail at startup.
+    # Must be identical on every API server so any of them can verify any token.
+    JWT_SECRET: SecretStr
+    JWT_ALGORITHM: str = "HS256"
+    ACCESS_TOKEN_TTL_SECONDS: int = 15 * 60  # brief: 15 minutes
+    REFRESH_TOKEN_TTL_SECONDS: int = 7 * 24 * 60 * 60  # brief: 7 days
+
+    # Brief: 5 failed logins per email per 15 minutes, then 429.
+    LOGIN_MAX_FAILED_ATTEMPTS: int = 5
+    LOGIN_RATE_LIMIT_WINDOW_SECONDS: int = 15 * 60
+
     @property
     def database_url(self) -> URL:
         # URL.create escapes special characters in the password, which string

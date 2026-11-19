@@ -34,5 +34,6 @@ async def test_every_migration_downgrades_and_upgrades_cleanly(db: AsyncSession)
         "categories",
         "exchange_rates",
         "expenses",
+        "refresh_tokens",
         "users",
     ]

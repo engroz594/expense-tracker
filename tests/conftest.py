@@ -16,6 +16,8 @@ from concurrent.futures import ThreadPoolExecutor
 # --- must run before anything imports app.* -------------------------------------
 os.environ["DB_NAME"] = os.environ.get("TEST_DB_NAME", "expense_tracker_test")
 os.environ["REDIS_DB"] = os.environ.get("TEST_REDIS_DB", "15")
+# A fixed, test-only signing key (not a real secret), so tests don't depend on .env.
+os.environ.setdefault("JWT_SECRET", "test-only-jwt-secret-not-used-anywhere-real-0123456789")
 # ---------------------------------------------------------------------------------
 
 import pytest  # noqa: E402
@@ -30,6 +32,7 @@ from app.core.database import SessionLocal, engine  # noqa: E402
 from app.core.redis import redis_client  # noqa: E402
 from app.models import Base  # noqa: E402
 from main import app  # noqa: E402
+from tests.helpers import DEFAULT_EMAIL, DEFAULT_PASSWORD, bearer  # noqa: E402
 
 # Guard: TRUNCATE below wipes every table. Refuse to run against anything that
 # isn't clearly a test database.
@@ -111,3 +114,40 @@ async def client() -> AsyncIterator[AsyncClient]:
     transport = ASGITransport(app=app, raise_app_exceptions=False)
     async with AsyncClient(transport=transport, base_url="http://test") as http:
         yield http
+
+
+# --- auth helpers (used by every feature slice) -----------------------------------
+
+
+@pytest.fixture
+def register_user(client: AsyncClient):
+    async def _register(
+        email: str = DEFAULT_EMAIL, password: str = DEFAULT_PASSWORD, base_currency: str = "PKR"
+    ) -> dict:
+        response = await client.post(
+            "/api/v1/auth/register",
+            json={"email": email, "password": password, "base_currency": base_currency},
+        )
+        assert response.status_code == 201, response.text
+        return response.json()
+
+    return _register
+
+
+@pytest.fixture
+def login(client: AsyncClient):
+    async def _login(email: str = DEFAULT_EMAIL, password: str = DEFAULT_PASSWORD) -> dict:
+        response = await client.post(
+            "/api/v1/auth/login", json={"email": email, "password": password}
+        )
+        assert response.status_code == 200, response.text
+        return response.json()
+
+    return _login
+
+
+@pytest.fixture
+async def auth_headers(register_user, login) -> dict[str, str]:
+    """Headers for a freshly registered and logged-in default user."""
+    await register_user()
+    return bearer(await login())
