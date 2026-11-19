@@ -46,8 +46,25 @@ data that grows daily, so they are filled by a re-runnable script rather than a 
 migration. The values are realistic but generated (USD = 1, AED pegged at 3.6725, EUR
 and PKR moving on a fixed daily pattern), not live market data.
 
-**Tests:** `uv run pytest` (needs the local Postgres and Redis; see
-[Tests and coverage](#tests-and-coverage)).
+**S3 (receipts).** Set `S3_BUCKET` in `.env` to a private bucket that exists. On AWS,
+leave the keys and `S3_ENDPOINT_URL` unset: the app uses the ECS task's IAM role.
+Locally, any S3-compatible store works, e.g. MinIO:
+
+```bash
+docker run -d -p 9000:9000 -e MINIO_ROOT_USER=minio -e MINIO_ROOT_PASSWORD=minio-secret \
+  minio/minio server /data
+# .env: S3_ENDPOINT_URL=http://localhost:9000, S3_ACCESS_KEY_ID=minio,
+#       S3_SECRET_ACCESS_KEY=minio-secret; create the bucket in the MinIO console (:9000)
+```
+
+Pre-signed URLs are signed for `S3_ENDPOINT_URL`, so for local receipt uploads run the
+API on the host (`uv run uvicorn …`), where `localhost:9000` is reachable by the client
+too. Failed S3 deletes are retried by `uv run python -m app.scripts.cleanup_s3_deletions`
+(run it on a schedule).
+
+**Tests:** `uv run pytest` — or plain `pytest` inside the activated `.venv`. Needs the
+local Postgres and Redis and `.env` with `DB_USER`/`DB_PASSWORD`; S3 is faked with moto
+(see [Tests and coverage](#tests-and-coverage)).
 
 **Postman:** `postman/` holds a collection for every endpoint and an environment file.
 
@@ -258,6 +275,8 @@ silently drop an expense. "This month" is the UTC calendar month.
 | unique `refresh_tokens (token_hash)` | Lookup on every refresh/logout |
 | `refresh_tokens (user_id)` | Revoke all of a user's tokens on reuse |
 | partial `refresh_tokens (family_id) WHERE used_at IS NULL AND revoked_at IS NULL` | Session check on every authenticated request; only live rows, so it stays tiny |
+| unique `pending_s3_deletions (object_key)` | One pending row per file (`ON CONFLICT DO NOTHING` when staged twice); lookup when a delete succeeds |
+| `pending_s3_deletions (next_attempt_at)` | The cleanup script's `WHERE next_attempt_at <= now()` |
 
 ## Tests and coverage
 
@@ -351,8 +370,8 @@ downgrade/upgrade, and the concurrency tests were run 20 times in a row without 
 
 ### 4. S3
 Private bucket: all four Block Public Access settings on, default encryption (SSE-S3 or
-KMS), a bucket policy denying non-TLS requests, and lifecycle rules (abort incomplete
-multipart uploads after 1 day; expire import files after 30 days). The app uses the ECS
+KMS), a bucket policy denying non-TLS requests, and a lifecycle rule to abort incomplete
+multipart uploads after 1 day. The app uses the ECS
 **task role** — no access keys anywhere. Smallest policy for what the app does:
 
 ```json
@@ -363,10 +382,7 @@ multipart uploads after 1 day; expire import files after 30 days). The app uses 
       "Sid": "AppObjects",
       "Effect": "Allow",
       "Action": ["s3:PutObject", "s3:GetObject", "s3:DeleteObject"],
-      "Resource": [
-        "arn:aws:s3:::expense-tracker-prod/receipts/*",
-        "arn:aws:s3:::expense-tracker-prod/imports/*"
-      ]
+      "Resource": "arn:aws:s3:::expense-tracker-prod/receipts/*"
     }
   ]
 }
@@ -403,8 +419,11 @@ fixed, server-chosen key per URL (`receipts/{user}/{expense}/{uuid}.{ext}`) so i
 overwrite anything else; a pre-signed PUT can't limit size → use a pre-signed **POST**
 with a `content-length-range` condition; the client can lie about the type → check the
 real type from the first bytes on confirm and delete the object if it doesn't match;
-uploads that are never confirmed become orphans → a lifecycle rule on unconfirmed keys;
-and the URL must be issued only after checking the expense belongs to the caller.
+and the URL must be issued only after checking the expense belongs to the caller. One
+gap I left open: an upload that is never confirmed stays in the bucket as an orphan. The
+fix is to have clients upload to a staging prefix (`uploads/…`) with a 1-day lifecycle
+expiry and to move the object to `receipts/` on confirm (or tag on confirm and expire
+untagged objects).
 
 **2. `GET /expenses` gets slow at 20 million rows. How do you find and fix it?**
 Take the slow query with real parameters (from `pg_stat_statements` or the logs) and run
@@ -521,12 +540,14 @@ for every line.
 - **Planning:** the implementation plan in `docs/PLAN.md` (slice order, schema, the
   approach to each hard feature) was drafted with Claude and revised by me.
 - **Code and tests:** each slice — foundation, migrations, test harness, auth, rate limit,
-  CRUD, listing, ETag, idempotency, report, storage client, receipts — was drafted by Claude, then reviewed by me
-  before commit. Design choices were mine after discussing the options, for example:
-  one migration per table and only the brief's tables plus `refresh_tokens`; exchange
-  rates from a re-runnable script instead of a migration; session-checked access tokens
-  instead of a `token_version` column; `limits` instead of hand-written Lua or slowapi;
-  idempotency in Redis only; arq instead of Celery.
+  CRUD, listing, ETag, idempotency, report, storage client, receipts — was drafted by
+  Claude, then reviewed by me before commit. Design choices were mine after discussing
+  the options, for example: one migration per table, and no table beyond the brief's
+  except `refresh_tokens` and `pending_s3_deletions`; exchange rates from a re-runnable
+  script instead of a migration; session-checked access tokens instead of a
+  `token_version` column; `limits` instead of hand-written Lua or slowapi; idempotency in
+  Redis only; a storage interface with an S3 implementation; failed S3 deletes in a table
+  retried by a script; skipping budget alerts and the CSV import to finish receipts.
 - **Docs:** this README, `CLAUDE.md` and the Postman collection were drafted with Claude
   and edited by me.
 - I did not use AI-generated code I couldn't explain; the request lifecycles of each slice
