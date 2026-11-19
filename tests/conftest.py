@@ -9,6 +9,7 @@
 """
 
 import asyncio
+import logging
 import os
 import uuid
 from collections.abc import AsyncIterator, Iterator
@@ -25,6 +26,7 @@ import pytest  # noqa: E402
 from alembic import command  # noqa: E402
 from alembic.config import Config  # noqa: E402
 from httpx import ASGITransport, AsyncClient  # noqa: E402
+from pydantic import SecretStr  # noqa: E402
 from sqlalchemy import select, text  # noqa: E402
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine  # noqa: E402
 
@@ -106,6 +108,45 @@ async def clean_state(migrated_database: None) -> AsyncIterator[None]:
         await conn.execute(text(f"TRUNCATE {tables} RESTART IDENTITY CASCADE"))
     await redis_client.flushdb()
     yield
+
+
+# --- S3 (moto) -------------------------------------------------------------------------
+# Brief: never call real S3 in tests. moto runs a fake S3 as a local HTTP server
+# (server mode, not in-process mock_aws, because aiobotocore talks real HTTP through
+# aiohttp, which in-process mocking can't intercept reliably).
+
+TEST_BUCKET = "expense-tracker-test"
+
+
+@pytest.fixture(scope="session")
+def moto_s3_endpoint() -> Iterator[str]:
+    from moto.server import ThreadedMotoServer
+
+    logging.getLogger("werkzeug").setLevel(logging.ERROR)  # no request log per call
+    server = ThreadedMotoServer(port=0, verbose=False)
+    server.start()
+    host, port = server.get_host_and_port()
+    endpoint = f"http://{host}:{port}"
+    with pytest.MonkeyPatch.context() as patch:
+        # S3StorageClient reads these at call time.
+        patch.setattr(settings, "S3_ENDPOINT_URL", endpoint)
+        patch.setattr(settings, "S3_BUCKET", TEST_BUCKET)
+        patch.setattr(settings, "S3_ACCESS_KEY_ID", SecretStr("test"))
+        patch.setattr(settings, "S3_SECRET_ACCESS_KEY", SecretStr("test"))
+        yield endpoint
+    server.stop()
+
+
+@pytest.fixture
+async def s3_bucket(moto_s3_endpoint: str) -> str:
+    """An empty test bucket: moto's state is reset, then the bucket is recreated."""
+    from app.clients.storage.s3_storage_client import S3StorageClient
+
+    async with AsyncClient() as http:
+        await http.post(f"{moto_s3_endpoint}/moto-api/reset")
+    async with S3StorageClient()._client() as s3:
+        await s3.create_bucket(Bucket=TEST_BUCKET)
+    return TEST_BUCKET
 
 
 @pytest.fixture

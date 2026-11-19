@@ -1,5 +1,5 @@
 # Expense Tracker — app containers only. PostgreSQL and Redis run on the Docker host
-# (same approach as AlphaPro); containers reach them via host.docker.internal.
+# (like RDS/ElastiCache on AWS); containers reach them via host.docker.internal.
 #
 #   docker compose up --build
 #

@@ -53,6 +53,15 @@ class Settings(BaseSettings):
     # Brief: Idempotency-Key keys expire after 24 hours.
     IDEMPOTENCY_KEY_TTL_SECONDS: int = 24 * 60 * 60
 
+    # S3 (all S3 code: app/clients/storage/s3_storage_client.py). On AWS leave the
+    # keys unset: the app then uses the default credential chain (the ECS task's IAM role).
+    # S3_ENDPOINT_URL is only for MinIO/LocalStack/moto; unset means real AWS S3.
+    S3_BUCKET: str = "expense-tracker"
+    S3_REGION: str = "us-east-1"
+    S3_ENDPOINT_URL: str | None = None
+    S3_ACCESS_KEY_ID: SecretStr | None = None
+    S3_SECRET_ACCESS_KEY: SecretStr | None = None
+
     @property
     def database_url(self) -> URL:
         # URL.create escapes special characters in the password, which string
