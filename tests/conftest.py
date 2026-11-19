@@ -31,8 +31,15 @@ from app.core.config import settings  # noqa: E402
 from app.core.database import SessionLocal, engine  # noqa: E402
 from app.core.redis import redis_client  # noqa: E402
 from app.models import Base  # noqa: E402
+from app.scripts.fill_exchange_rates import fill_exchange_rates  # noqa: E402
 from main import app  # noqa: E402
-from tests.helpers import DEFAULT_EMAIL, DEFAULT_PASSWORD, bearer  # noqa: E402
+from tests.helpers import (  # noqa: E402
+    DEFAULT_EMAIL,
+    DEFAULT_PASSWORD,
+    OTHER_EMAIL,
+    TODAY,
+    bearer,
+)
 
 # Guard: TRUNCATE below wipes every table. Refuse to run against anything that
 # isn't clearly a test database.
@@ -151,3 +158,50 @@ async def auth_headers(register_user, login) -> dict[str, str]:
     """Headers for a freshly registered and logged-in default user."""
     await register_user()
     return bearer(await login())
+
+
+@pytest.fixture
+async def other_auth_headers(register_user, login) -> dict[str, str]:
+    """A second user, for "can't see/change someone else's data" tests."""
+    await register_user(email=OTHER_EMAIL)
+    return bearer(await login(email=OTHER_EMAIL))
+
+
+# --- data helpers ---------------------------------------------------------------------
+
+
+@pytest.fixture
+async def rates(db: AsyncSession) -> None:
+    """Exchange rates for the 90 days up to today (UTC), as the fill script makes them."""
+    await fill_exchange_rates(db, until=TODAY)
+
+
+@pytest.fixture
+def create_category(client: AsyncClient):
+    async def _create(headers: dict, name: str = "Food", monthly_budget: str | None = None) -> dict:
+        response = await client.post(
+            "/api/v1/categories",
+            json={"name": name, "monthly_budget": monthly_budget},
+            headers=headers,
+        )
+        assert response.status_code == 201, response.text
+        return response.json()
+
+    return _create
+
+
+@pytest.fixture
+def create_expense(client: AsyncClient):
+    async def _create(headers: dict, category_id: str, **overrides) -> dict:
+        payload = {
+            "category_id": category_id,
+            "amount": "12.50",
+            "currency": "PKR",
+            "description": "Lunch",
+            "spent_on": TODAY.isoformat(),
+        } | overrides
+        response = await client.post("/api/v1/expenses", json=payload, headers=headers)
+        assert response.status_code == 201, response.text
+        return response.json()
+
+    return _create
