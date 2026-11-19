@@ -3,7 +3,7 @@ from datetime import datetime
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from app.schemas.types import Money, MoneyOut
+from app.schemas.types import Money, MoneyOut, PercentOut
 
 
 class CategoryCreate(BaseModel):
@@ -21,5 +21,10 @@ class CategoryResponse(BaseModel):
     created_at: datetime
 
 
+class CategoryWithSpendResponse(CategoryResponse):
+    spent_this_month: MoneyOut  # current calendar month (UTC), in the base currency
+    percent_used: PercentOut | None  # null when the category has no budget
+
+
 class CategoryListResponse(BaseModel):
-    items: list[CategoryResponse]
+    items: list[CategoryWithSpendResponse]

@@ -1,5 +1,12 @@
+from datetime import timedelta
+from decimal import ROUND_HALF_UP, Decimal
+
 import pytest
 from httpx import AsyncClient
+
+from app.enums import Currency
+from app.scripts.fill_exchange_rates import rate_for
+from tests.helpers import TODAY
 
 CATEGORIES = "/api/v1/categories"
 
@@ -69,6 +76,34 @@ async def test_list_returns_only_my_categories_sorted_by_name(
 
     assert response.status_code == 200
     assert [c["name"] for c in response.json()["items"]] == ["Food", "Travel"]
+
+
+@pytest.mark.usefixtures("rates")
+async def test_list_shows_this_months_spend_vs_budget_in_base_currency(
+    client: AsyncClient, auth_headers, create_category, create_expense
+):
+    # The default user's base currency is PKR.
+    food = await create_category(auth_headers, name="Food", monthly_budget="1000")
+    travel = await create_category(auth_headers, name="Travel")
+    this_month = TODAY
+    last_month = TODAY.replace(day=1) - timedelta(days=1)
+    await create_expense(auth_headers, food["id"], amount="100.00", spent_on=this_month.isoformat())
+    await create_expense(auth_headers, food["id"], amount="50.50", spent_on=this_month.isoformat())
+    await create_expense(auth_headers, food["id"], amount="999.00", spent_on=last_month.isoformat())
+    await create_expense(
+        auth_headers, travel["id"], amount="10.00", currency="EUR", spent_on=this_month.isoformat()
+    )
+
+    response = await client.get(CATEGORIES, headers=auth_headers)
+
+    items = {c["name"]: c for c in response.json()["items"]}
+    assert items["Food"]["spent_this_month"] == "150.50"  # last month's 999 excluded
+    assert items["Food"]["percent_used"] == "15.05"
+    eur_in_pkr = (
+        Decimal("10.00") * rate_for(Currency.EUR, this_month) / rate_for(Currency.PKR, this_month)
+    ).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+    assert items["Travel"]["spent_this_month"] == str(eur_in_pkr)
+    assert items["Travel"]["percent_used"] is None
 
 
 async def test_categories_require_authentication(client: AsyncClient):

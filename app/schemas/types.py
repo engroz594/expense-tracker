@@ -13,3 +13,6 @@ Money = Annotated[Decimal, Field(gt=0, max_digits=12, decimal_places=2)]
 # whether the value came from the database or straight from the request. A string,
 # not a JSON number, so no client parses it into a float.
 MoneyOut = Annotated[Decimal, PlainSerializer(lambda value: f"{value:.2f}", return_type=str)]
+
+# Percentages in responses, same exact 2-decimal string form ("21.00").
+PercentOut = MoneyOut
