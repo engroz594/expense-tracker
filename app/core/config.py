@@ -50,6 +50,9 @@ class Settings(BaseSettings):
     LOGIN_MAX_FAILED_ATTEMPTS: int = 5
     LOGIN_RATE_LIMIT_WINDOW_SECONDS: int = 15 * 60
 
+    # Brief: Idempotency-Key keys expire after 24 hours.
+    IDEMPOTENCY_KEY_TTL_SECONDS: int = 24 * 60 * 60
+
     @property
     def database_url(self) -> URL:
         # URL.create escapes special characters in the password, which string

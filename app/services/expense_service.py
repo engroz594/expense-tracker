@@ -4,9 +4,9 @@ Every query filters on user_id, so another user's expense simply doesn't exist f
 the caller (404, never 403).
 
 Writes are built as "stage, then commit": _stage_create adds the expense to the
-session without committing. Later slices add their rows (idempotency record, outbox
-event) to the same transaction before the single commit, so the expense and its
-side records are always written together or not at all.
+session without committing. Later slices add their rows (the outbox event) to the
+same transaction before the single commit, so the expense and its side records are
+always written together or not at all.
 """
 
 import uuid

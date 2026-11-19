@@ -19,6 +19,13 @@ class ExpenseCreate(BaseModel):
     description: str = Field(default="", max_length=500)
     spent_on: date
 
+    def canonical(self) -> dict:
+        """The request as data, for the Idempotency-Key fingerprint: two bodies that
+        mean the same expense ("12.5" vs 12.50, any key order) compare equal."""
+        data = self.model_dump(mode="json")
+        data["amount"] = f"{self.amount:.2f}"
+        return data
+
 
 class ExpenseUpdate(BaseModel):
     """PATCH body: send only the fields to change.

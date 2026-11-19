@@ -3,10 +3,13 @@ import uuid
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, Header, Query, Response, status
+from fastapi.responses import JSONResponse
+from redis.asyncio import Redis
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.auth import get_current_user
 from app.core.database import get_db
+from app.core.redis import get_redis
 from app.exceptions import PreconditionFailed, PreconditionRequired
 from app.models import User
 from app.schemas.expense_schemas import (
@@ -17,6 +20,7 @@ from app.schemas.expense_schemas import (
     ExpenseUpdate,
 )
 from app.services.expense_service import ExpenseService
+from app.services.idempotency_service import IdempotencyService, fingerprint
 
 router = APIRouter()
 
@@ -52,15 +56,33 @@ def parse_if_match(if_match: str | None) -> int:
     return int(match.group(1))
 
 
+def get_idempotency_service(redis: Redis = Depends(get_redis)) -> IdempotencyService:
+    return IdempotencyService(redis)
+
+
 @router.post("", status_code=status.HTTP_201_CREATED, response_model=ExpenseResponse)
 async def create_expense(
     payload: ExpenseCreate,
-    response: Response,
+    idempotency_key: Annotated[str | None, Header(min_length=1, max_length=255)] = None,
     expenses: ExpenseService = Depends(get_expense_service),
-) -> ExpenseResponse:
-    expense = await expenses.create(payload)
-    response.headers["ETag"] = etag_for(expense.version)
-    return ExpenseResponse.model_validate(expense)
+    idempotency: IdempotencyService = Depends(get_idempotency_service),
+) -> JSONResponse:
+    async def create() -> tuple[int, dict, dict[str, str]]:
+        expense = await expenses.create(payload)
+        body = ExpenseResponse.model_validate(expense).model_dump(mode="json")
+        return status.HTTP_201_CREATED, body, {"ETag": etag_for(expense.version)}
+
+    if idempotency_key is None:
+        status_code, body, headers = await create()
+        return JSONResponse(status_code=status_code, content=body, headers=headers)
+
+    result = await idempotency.run(
+        expenses.user.id, idempotency_key, fingerprint(payload.canonical()), create
+    )
+    headers = dict(result.headers)
+    if result.replayed:
+        headers["Idempotent-Replayed"] = "true"
+    return JSONResponse(status_code=result.status, content=result.body, headers=headers)
 
 
 @router.get("", response_model=ExpensePage)

@@ -10,6 +10,7 @@
 
 import asyncio
 import os
+import uuid
 from collections.abc import AsyncIterator, Iterator
 from concurrent.futures import ThreadPoolExecutor
 
@@ -24,13 +25,13 @@ import pytest  # noqa: E402
 from alembic import command  # noqa: E402
 from alembic.config import Config  # noqa: E402
 from httpx import ASGITransport, AsyncClient  # noqa: E402
-from sqlalchemy import text  # noqa: E402
+from sqlalchemy import select, text  # noqa: E402
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine  # noqa: E402
 
 from app.core.config import settings  # noqa: E402
 from app.core.database import SessionLocal, engine  # noqa: E402
 from app.core.redis import redis_client  # noqa: E402
-from app.models import Base  # noqa: E402
+from app.models import Base, User  # noqa: E402
 from app.scripts.fill_exchange_rates import fill_exchange_rates  # noqa: E402
 from main import app  # noqa: E402
 from tests.helpers import (  # noqa: E402
@@ -158,6 +159,12 @@ async def auth_headers(register_user, login) -> dict[str, str]:
     """Headers for a freshly registered and logged-in default user."""
     await register_user()
     return bearer(await login())
+
+
+@pytest.fixture
+async def auth_user_id(auth_headers, db: AsyncSession) -> uuid.UUID:
+    """The id of the user behind auth_headers."""
+    return await db.scalar(select(User.id).where(User.email == DEFAULT_EMAIL))
 
 
 @pytest.fixture
