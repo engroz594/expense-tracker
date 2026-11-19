@@ -41,6 +41,38 @@
     {
       "key": "nextCursor",
       "value": ""
+    },
+    {
+      "key": "receiptKey",
+      "value": ""
+    },
+    {
+      "key": "receiptUploadUrl",
+      "value": ""
+    },
+    {
+      "key": "s3Policy",
+      "value": ""
+    },
+    {
+      "key": "s3Algorithm",
+      "value": ""
+    },
+    {
+      "key": "s3Credential",
+      "value": ""
+    },
+    {
+      "key": "s3Date",
+      "value": ""
+    },
+    {
+      "key": "s3Signature",
+      "value": ""
+    },
+    {
+      "key": "receiptContentType",
+      "value": ""
     }
   ],
   "item": [
@@ -596,6 +628,235 @@
               }
             }
           ]
+        },
+        {
+          "name": "Receipt upload URL",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 200', () => pm.response.to.have.status(200));",
+                  "const b = pm.response.json(); const f = b.fields;",
+                  "pm.collectionVariables.set('receiptKey', b.key);",
+                  "pm.collectionVariables.set('receiptUploadUrl', b.url);",
+                  "pm.collectionVariables.set('receiptContentType', f['Content-Type']);",
+                  "pm.collectionVariables.set('s3Policy', f.policy);",
+                  "pm.collectionVariables.set('s3Algorithm', f['x-amz-algorithm']);",
+                  "pm.collectionVariables.set('s3Credential', f['x-amz-credential']);",
+                  "pm.collectionVariables.set('s3Date', f['x-amz-date']);",
+                  "pm.collectionVariables.set('s3Signature', f['x-amz-signature']);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"content_type\": \"image/png\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/expenses/{{expenseId}}/receipt/upload-url",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "expenses",
+                "{{expenseId}}",
+                "receipt",
+                "upload-url"
+              ]
+            },
+            "description": "content_type: image/jpeg, image/png or application/pdf. Returns a pre-signed POST (5 min, max 5 MB) for a server-chosen key."
+          }
+        },
+        {
+          "name": "Upload receipt to S3 (pre-signed POST)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('S3 accepted the upload', () => pm.expect(pm.response.code).to.be.oneOf([200, 201, 204]));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "auth": {
+              "type": "noauth"
+            },
+            "header": [],
+            "body": {
+              "mode": "formdata",
+              "formdata": [
+                {
+                  "key": "key",
+                  "value": "{{receiptKey}}",
+                  "type": "text"
+                },
+                {
+                  "key": "Content-Type",
+                  "value": "{{receiptContentType}}",
+                  "type": "text"
+                },
+                {
+                  "key": "x-amz-algorithm",
+                  "value": "{{s3Algorithm}}",
+                  "type": "text"
+                },
+                {
+                  "key": "x-amz-credential",
+                  "value": "{{s3Credential}}",
+                  "type": "text"
+                },
+                {
+                  "key": "x-amz-date",
+                  "value": "{{s3Date}}",
+                  "type": "text"
+                },
+                {
+                  "key": "policy",
+                  "value": "{{s3Policy}}",
+                  "type": "text"
+                },
+                {
+                  "key": "x-amz-signature",
+                  "value": "{{s3Signature}}",
+                  "type": "text"
+                },
+                {
+                  "key": "file",
+                  "type": "file",
+                  "src": []
+                }
+              ]
+            },
+            "url": {
+              "raw": "{{receiptUploadUrl}}",
+              "host": [
+                "{{receiptUploadUrl}}"
+              ]
+            },
+            "description": "Goes straight to S3, not the API. Choose a real PNG for the 'file' field (it must be last). An .exe renamed to .png is rejected at confirm."
+          }
+        },
+        {
+          "name": "Confirm receipt",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 200', () => pm.response.to.have.status(200));",
+                  "pm.collectionVariables.set('etag', pm.response.headers.get('ETag'));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"key\": \"{{receiptKey}}\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/expenses/{{expenseId}}/receipt/confirm",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "expenses",
+                "{{expenseId}}",
+                "receipt",
+                "confirm"
+              ]
+            },
+            "description": "Checks the file exists, is <= 5 MB and really is a JPG/PNG/PDF (first bytes), then saves receipt_key. 404 if not uploaded, 422 if the type is wrong."
+          }
+        },
+        {
+          "name": "Receipt download URL",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 200', () => pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/expenses/{{expenseId}}/receipt",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "expenses",
+                "{{expenseId}}",
+                "receipt"
+              ]
+            },
+            "description": "A pre-signed GET valid for 15 minutes."
+          }
         },
         {
           "name": "Delete expense",

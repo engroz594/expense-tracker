@@ -4,19 +4,20 @@ Every query filters on user_id, so another user's expense simply doesn't exist f
 the caller (404, never 403).
 
 Writes are built as "stage, then commit": _stage_create adds the expense to the
-session without committing. Later slices add their rows (the outbox event) to the
-same transaction before the single commit, so the expense and its side records are
-always written together or not at all.
+session without committing; side records (e.g. a pending S3 deletion) join the same
+transaction before the single commit, so the expense and its side records are always
+written together or not at all.
 """
 
 import uuid
 
 from sqlalchemy import delete, exists, func, select, tuple_, update
+from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.pagination import decode_cursor, encode_cursor
 from app.exceptions import NotFound, PreconditionFailed
-from app.models import Expense, User
+from app.models import Expense, PendingS3Deletion, User
 from app.schemas.expense_schemas import ExpenseCreate, ExpenseListQuery, ExpenseUpdate
 from app.services.category_service import CategoryService
 from app.services.currency_service import ensure_rates_available
@@ -146,17 +147,31 @@ class ExpenseService:
         await self.db.commit()
         return updated
 
-    async def delete(self, expense_id: uuid.UUID) -> None:
-        # One statement: the ownership check is part of the WHERE, so there is no
-        # read-then-delete gap.
-        deleted = await self.db.scalar(
-            delete(Expense)
-            .where(Expense.id == expense_id, Expense.user_id == self.user.id)
-            .returning(Expense.id)
-        )
+    async def delete(self, expense_id: uuid.UUID) -> str | None:
+        """Delete the expense. Returns its receipt's S3 key, if it had one.
+
+        One statement: the ownership check is part of the WHERE, so there is no
+        read-then-delete gap. A receipt key is staged in pending_s3_deletions in the
+        SAME transaction, so the file can't be forgotten even if the S3 delete that
+        follows the commit fails. The caller then calls S3DeletionService.delete_now.
+        """
+        deleted = (
+            await self.db.execute(
+                delete(Expense)
+                .where(Expense.id == expense_id, Expense.user_id == self.user.id)
+                .returning(Expense.id, Expense.receipt_key)
+            )
+        ).one_or_none()
         if deleted is None:
             raise NotFound("Expense not found")
+        if deleted.receipt_key:
+            await self.db.execute(
+                insert(PendingS3Deletion)
+                .values(object_key=deleted.receipt_key)
+                .on_conflict_do_nothing(index_elements=["object_key"])
+            )
         await self.db.commit()
+        return deleted.receipt_key
 
     async def _stage_create(self, data: ExpenseCreate) -> Expense:
         await CategoryService(self.db, self.user).get(data.category_id)  # 404 if not mine

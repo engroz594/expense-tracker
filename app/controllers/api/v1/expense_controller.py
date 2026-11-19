@@ -7,6 +7,8 @@ from fastapi.responses import JSONResponse
 from redis.asyncio import Redis
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.clients.storage.s3_storage_client import get_storage_client
+from app.contracts.storage_client import StorageClient
 from app.core.auth import get_current_user
 from app.core.database import get_db
 from app.core.redis import get_redis
@@ -21,6 +23,7 @@ from app.schemas.expense_schemas import (
 )
 from app.services.expense_service import ExpenseService
 from app.services.idempotency_service import IdempotencyService, fingerprint
+from app.services.s3_deletion_service import S3DeletionService
 
 router = APIRouter()
 
@@ -123,7 +126,13 @@ async def update_expense(
 
 @router.delete("/{expense_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_expense(
-    expense_id: uuid.UUID, expenses: ExpenseService = Depends(get_expense_service)
+    expense_id: uuid.UUID,
+    expenses: ExpenseService = Depends(get_expense_service),
+    storage: StorageClient = Depends(get_storage_client),
 ) -> Response:
-    await expenses.delete(expense_id)
+    receipt_key = await expenses.delete(expense_id)
+    if receipt_key:
+        # The expense is gone and the deletion is recorded; a failure here only
+        # leaves the row for app/scripts/cleanup_s3_deletions.py to retry.
+        await S3DeletionService(expenses.db, storage).delete_now(receipt_key)
     return Response(status_code=status.HTTP_204_NO_CONTENT)

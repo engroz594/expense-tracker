@@ -70,6 +70,9 @@ All endpoints are under `/api/v1`, except the health probes.
 | GET | `/expenses/{id}` | One expense, with `ETag` | 200 |
 | PATCH | `/expenses/{id}` | Partial update, needs `If-Match` | 200 |
 | DELETE | `/expenses/{id}` | Delete | 204 |
+| POST | `/expenses/{id}/receipt/upload-url` | Pre-signed POST to upload a receipt straight to S3 | 200 |
+| POST | `/expenses/{id}/receipt/confirm` | Verify the uploaded file (exists, ≤ 5 MB, real type) and attach it | 200 |
+| GET | `/expenses/{id}/receipt` | Download link, valid 15 minutes | 200 |
 | GET | `/reports/monthly?year=&month=` | Totals per category in base currency, vs last month | 200 |
 
 **Errors** always have one shape, including framework 404/405 and validation errors:
@@ -107,8 +110,14 @@ response model. Errors are raised as `AppError` subclasses and converted to the 
 by one set of handlers.
 
 **Schema.** `users`, `categories`, `expenses`, `exchange_rates` as in the brief, plus
-`refresh_tokens` (needed for rotation, reuse detection and logout — see below).
-Idempotency keys live in Redis, so they need no table.
+`refresh_tokens` (needed for rotation, reuse detection and logout) and
+`pending_s3_deletions` (receipt files whose S3 delete must still happen). Idempotency
+keys live in Redis, so they need no table.
+
+**Storage.** Code that stores files depends on the `StorageClient` interface
+(`app/contracts/storage_client.py`); `S3StorageClient`
+(`app/clients/storage/s3_storage_client.py`, aiobotocore) is the only code that talks
+to S3.
 
 ## Design decisions
 
@@ -205,6 +214,32 @@ expense write requires a rate on or before its date for both its currency and th
 user's base currency (else 422 `no_exchange_rate`), so the inner lateral joins can never
 silently drop an expense. "This month" is the UTC calendar month.
 
+### Receipts on S3
+1. **Upload URL** — `POST /expenses/{id}/receipt/upload-url` with `content_type`
+   (`image/jpeg`, `image/png` or `application/pdf`). The server picks the key,
+   `receipts/{user}/{expense}/{uuid}.{jpg|png|pdf}`, and returns a pre-signed **POST**
+   valid 5 minutes. Its signed policy pins the key and content type and sets
+   `content-length-range` 1 B – 5 MB, so S3 itself rejects a bigger file (a pre-signed
+   PUT can't limit size). The client uploads straight to S3; the file never passes
+   through the API.
+2. **Confirm** — `POST /expenses/{id}/receipt/confirm` with the key. The key must be one
+   we could have issued for *this* expense (prefix, uuid name, allowed extension), so a
+   client can't attach someone else's file. `HeadObject` proves the file exists (missing
+   → 404) and re-checks the size; then a ranged GET reads the first 8 bytes and checks
+   the **real** type from its signature (`FF D8 FF` JPEG, `89 50 4E 47 0D 0A 1A 0A` PNG,
+   `%PDF-`), which must match the extension. On a mismatch — e.g. an `.exe` renamed to
+   `.png` — the object is deleted and the request fails with 422. Otherwise
+   `receipt_key` is saved and `version` is bumped (a new ETag, like any change).
+3. **Download** — `GET /expenses/{id}/receipt` returns a pre-signed GET valid 15 minutes.
+4. **Deleting files without forgetting them** — deleting an expense (or replacing its
+   receipt) inserts a `pending_s3_deletions` row **in the same transaction** that drops
+   the reference. After the commit the API tries the S3 delete and removes the row on
+   success. If S3 fails, the row stays with the error and a next-attempt time
+   (exponential backoff, 1 min doubling up to 1 h); `python -m
+   app.scripts.cleanup_s3_deletions` retries every due row (claimed with `FOR UPDATE
+   SKIP LOCKED`, so concurrent runs are safe). It runs on a schedule (cron locally, an
+   EventBridge-scheduled ECS task on AWS). The file is cleaned up later, never forgotten.
+
 ### Exchange-rate convention
 `rate_to_usd` = USD value of one unit. Converting A → B on day d is
 `amount × rate_A(d) / rate_B(d)`.
@@ -231,7 +266,7 @@ uv run pytest                        # everything, with a coverage report
 uv run pytest --cov-fail-under=85    # with the brief's gate
 ```
 
-**154 tests, 98.51 % coverage.** They run against a real PostgreSQL database
+**182 tests, 98.78 % coverage.** They run against a real PostgreSQL database
 (`expense_tracker_test`, created and migrated automatically) and Redis DB 15. Every table
 is truncated and Redis flushed before each test — not a rolled-back transaction, because
 the concurrency tests need real, separate connections and commits. The harness refuses
@@ -252,6 +287,12 @@ The brief's required tests:
 | Budget alert event processed twice → one notification | not built (see below) |
 | CSV import with good and bad rows → right counts | not built (see below) |
 
+S3 is never called in tests: they run against **moto** in server mode (a fresh bucket per
+test), with real pre-signed POST uploads and downloads. The fake-file test is
+`tests/api/test_receipts.py::test_exe_renamed_to_png_is_rejected_and_deleted`; a failing
+S3 delete followed by the cleanup run is
+`test_failed_s3_delete_is_kept_and_cleaned_up_later`.
+
 Also: the report is proven to be a single SQL statement (an engine event listener counts
 the statements), migrations are checked for drift (`alembic check`) and for clean
 downgrade/upgrade, and the concurrency tests were run 20 times in a row without a flake.
@@ -264,6 +305,8 @@ downgrade/upgrade, and the concurrency tests were run 20 times in a row without 
 - **API service:** at least 2 tasks spread over 2 AZs behind an ALB. Target-tracking
   auto scaling on CPU (~60 %) and ALB requests per target; min 2, max ~10. ECS replaces
   tasks that exit or fail their container health check (`/health`).
+- **S3 cleanup:** `python -m app.scripts.cleanup_s3_deletions` as an EventBridge-scheduled
+  ECS task (same image) every 10 minutes; it's idempotent and safe to overlap.
 - **Worker service** (for the CSV import and budget-alert relay once built): a separate
   ECS service, 1–2 tasks, scaled on queue depth / outbox backlog (a CloudWatch metric).
 - **Zero-downtime release:** rolling deployment with `minimumHealthyPercent=100`,
@@ -448,7 +491,7 @@ the expense transaction.
 - `GET /notifications`: keyset-paginated, newest first.
 - Test: process the same event twice → one notification.
 
-### 2.4 Bulk CSV import (in progress at the time of writing)
+### 2.4 Bulk CSV import (not built)
 - `POST /expenses/import` streams the upload (hashing it as it goes) to S3 under
   `imports/{user}/{sha256}.csv` and returns 202 with a `job_id`; `GET /imports/{job_id}`
   shows status, rows done, rows failed and the first errors.
@@ -462,22 +505,6 @@ the expense transaction.
   unique partial index, so a retried job can't insert a row twice.
 - Faster path for very large files: `COPY` into a staging table, then one
   `INSERT … SELECT … ON CONFLICT DO NOTHING`.
-
-### 2.5 Receipts on S3 (not built)
-- All S3 code in `S3StorageClient` (`app/clients/storage/s3_storage_client.py`, aiobotocore), behind the `StorageClient` interface; receipts would add `presign_post`, `head`, `read_first_bytes` and `presign_get` to both.
-- `POST /expenses/{id}/receipt/upload-url`: a pre-signed **POST** (it can enforce
-  `content-length-range` up to 5 MB; a pre-signed PUT can't), key
-  `receipts/{user}/{expense}/{uuid}.{jpg|png|pdf}`, short expiry.
-- `POST …/receipt/confirm`: `HeadObject` (exists, size ≤ 5 MB; 403 without ListBucket
-  means "missing"), read the first bytes with a ranged GET and check the magic numbers
-  (`FFD8FF` JPEG, `89 50 4E 47 0D 0A 1A 0A` PNG, `%PDF-`), delete and 422 on mismatch,
-  then save `receipt_key`.
-- `GET …/receipt`: a pre-signed GET valid for 15 minutes.
-- **Delete:** the expense delete writes a `pending_s3_deletions` row in the same
-  transaction; after commit the API tries the S3 delete and removes the row on success.
-  If S3 fails, a worker cron retries with backoff — the file is cleaned up later, never
-  forgotten.
-- Tests with moto, including a `.exe` renamed to `.png`.
 
 ### Other things I would add with more time
 - A GitHub Actions workflow running ruff and pytest with Postgres and Redis services.
@@ -494,7 +521,7 @@ for every line.
 - **Planning:** the implementation plan in `docs/PLAN.md` (slice order, schema, the
   approach to each hard feature) was drafted with Claude and revised by me.
 - **Code and tests:** each slice — foundation, migrations, test harness, auth, rate limit,
-  CRUD, listing, ETag, idempotency, report — was drafted by Claude, then reviewed by me
+  CRUD, listing, ETag, idempotency, report, storage client, receipts — was drafted by Claude, then reviewed by me
   before commit. Design choices were mine after discussing the options, for example:
   one migration per table and only the brief's tables plus `refresh_tokens`; exchange
   rates from a re-runnable script instead of a migration; session-checked access tokens

@@ -62,6 +62,15 @@ class Settings(BaseSettings):
     S3_ACCESS_KEY_ID: SecretStr | None = None
     S3_SECRET_ACCESS_KEY: SecretStr | None = None
 
+    # Receipts (brief 2.5): JPG/PNG/PDF up to 5 MB; download links live 15 minutes.
+    RECEIPT_MAX_BYTES: int = 5 * 1024 * 1024
+    RECEIPT_UPLOAD_URL_TTL_SECONDS: int = 5 * 60
+    RECEIPT_DOWNLOAD_URL_TTL_SECONDS: int = 15 * 60
+    # Failed S3 deletes are retried by app/scripts/cleanup_s3_deletions.py with
+    # exponential backoff: base * 2^attempts, capped.
+    S3_DELETE_RETRY_BASE_SECONDS: int = 60
+    S3_DELETE_RETRY_MAX_SECONDS: int = 60 * 60
+
     @property
     def database_url(self) -> URL:
         # URL.create escapes special characters in the password, which string
