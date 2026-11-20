@@ -18,8 +18,9 @@ from aiobotocore.config import AioConfig
 from aiobotocore.session import get_session
 from botocore.exceptions import ClientError
 
-from app.contracts.storage_client import ObjectInfo, ObjectNotFound, PresignedUpload, StorageClient
+from app.contracts.storage_client import ObjectInfo, PresignedUpload, StorageClient
 from app.core.config import settings
+from app.exceptions import ObjectNotFound
 
 # Without s3:ListBucket (the app's IAM policy doesn't grant it) S3 answers 403, not
 # 404, for a missing key — both mean "not there" to us.

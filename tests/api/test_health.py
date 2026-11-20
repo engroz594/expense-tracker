@@ -28,6 +28,22 @@ def override_redis():
     app.dependency_overrides.pop(get_redis, None)
 
 
+async def test_root_returns_application_info_without_checking_dependencies(
+    client: AsyncClient, override_redis
+):
+    override_redis(_RedisDown())  # like /health, the root must not depend on Redis/Postgres
+
+    response = await client.get("/")
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "name": settings.APP_NAME,
+        "version": settings.APP_VERSION,
+        "docs": "/docs",
+        "openapi": "/openapi.json",
+    }
+
+
 async def test_health_is_ok_without_checking_dependencies(client: AsyncClient, override_redis):
     override_redis(_RedisDown())  # liveness must not depend on Redis/Postgres
 

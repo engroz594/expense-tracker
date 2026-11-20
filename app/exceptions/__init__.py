@@ -10,12 +10,14 @@ from app.exceptions.base import (
     Unauthorized,
     UnprocessableEntity,
 )
+from app.exceptions.storage import ObjectNotFound
 
 __all__ = [
     "AppError",
     "BadRequest",
     "Conflict",
     "NotFound",
+    "ObjectNotFound",
     "PreconditionFailed",
     "PreconditionRequired",
     "RateLimited",

@@ -8,7 +8,7 @@
 
 x-app-common: &app-common
   build: .
-  # One image for every role (api, migrate, later the worker); only the command differs.
+  # One image for every role (api, migrate); only the command differs.
   image: expense-tracker:local
   env_file:
     - path: .env
@@ -45,5 +45,3 @@ services:
       timeout: 5s
       retries: 3
       start_period: 10s
-
-  # Slice 10 adds the arq `worker` here — same image, different command.

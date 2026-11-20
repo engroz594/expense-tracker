@@ -38,5 +38,5 @@ USER app
 
 EXPOSE 8000
 
-# The same image also runs migrations (`alembic upgrade head`) and, later, the worker.
+# The same image also runs migrations (`alembic upgrade head`).
 CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]

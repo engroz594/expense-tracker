@@ -6,9 +6,7 @@ from app.controllers.api.v1.expense_controller import router as expense_router
 from app.controllers.api.v1.receipt_controller import router as receipt_router
 from app.controllers.api.v1.report_controller import router as report_router
 
-# Main v1 router, mounted at /api/v1 in app/core/application.py.
-# Each feature controller's router is included here as its slice lands
-# (auth, categories, expenses, reports, notifications, imports).
+# Main v1 router, mounted at /api/v1 in app/core/application.py.x
 router = APIRouter()
 
 router.include_router(auth_router, prefix="/auth", tags=["Auth"])

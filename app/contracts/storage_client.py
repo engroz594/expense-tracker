@@ -11,10 +11,6 @@ from dataclasses import dataclass
 from typing import IO
 
 
-class ObjectNotFound(Exception):
-    """The requested object doesn't exist (or isn't visible to us)."""
-
-
 @dataclass(frozen=True)
 class PresignedUpload:
     """A pre-signed POST: the client sends a multipart form with `fields` plus the

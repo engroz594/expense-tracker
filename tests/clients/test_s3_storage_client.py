@@ -7,8 +7,9 @@ from botocore.exceptions import ClientError
 from pydantic import SecretStr
 
 from app.clients.storage.s3_storage_client import S3StorageClient, get_storage_client
-from app.contracts.storage_client import ObjectNotFound, StorageClient
+from app.contracts.storage_client import StorageClient
 from app.core.config import settings
+from app.exceptions import ObjectNotFound
 
 
 @pytest.fixture

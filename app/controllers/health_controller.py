@@ -1,5 +1,7 @@
-"""Liveness and readiness probes (mounted at the root, outside /api/v1).
+"""Service info and liveness/readiness probes (mounted at the root, outside /api/v1).
 
+/       — application info: name, version and where to find the API docs.
+          Touches no dependencies, like /health.
 /health — liveness: is the process up? Checks nothing else, so a database outage
           doesn't make the orchestrator kill and restart healthy API containers.
 /ready  — readiness: can this instance serve traffic? Pings Postgres and Redis.
@@ -10,7 +12,7 @@ import asyncio
 import logging
 from collections.abc import Awaitable
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Request
 from redis.asyncio import Redis
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -23,6 +25,17 @@ from app.exceptions import ServiceUnavailable
 logger = logging.getLogger(__name__)
 
 router = APIRouter(tags=["Health"])
+
+
+@router.get("/")
+async def root(request: Request) -> dict[str, str | None]:
+    app = request.app
+    return {
+        "name": app.title,
+        "version": app.version,
+        "docs": app.docs_url,
+        "openapi": app.openapi_url,
+    }
 
 
 @router.get("/health")

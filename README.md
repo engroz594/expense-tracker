@@ -70,10 +70,11 @@ local Postgres and Redis and `.env` with `DB_USER`/`DB_PASSWORD`; S3 is faked wi
 
 ## API
 
-All endpoints are under `/api/v1`, except the health probes.
+All endpoints are under `/api/v1`, except the service info and health probes at the root.
 
 | Method | URL | What it does | Success |
 |---|---|---|---|
+| GET | `/` | Service info: name, version and links to the API docs | 200 |
 | GET | `/health` | Liveness: the process is up | 200 |
 | GET | `/ready` | Readiness: Postgres and Redis respond (2 s timeout each) | 200 / 503 |
 | POST | `/auth/register` | Create a user | 201 |
@@ -285,7 +286,7 @@ uv run pytest                        # everything, with a coverage report
 uv run pytest --cov-fail-under=85    # with the brief's gate
 ```
 
-**182 tests, 98.78 % coverage.** They run against a real PostgreSQL database
+**183 tests, 98.79 % coverage.** They run against a real PostgreSQL database
 (`expense_tracker_test`, created and migrated automatically) and Redis DB 15. Every table
 is truncated and Redis flushed before each test — not a rolled-back transaction, because
 the concurrency tests need real, separate connections and commits. The harness refuses
@@ -526,6 +527,9 @@ the expense transaction.
   `INSERT … SELECT … ON CONFLICT DO NOTHING`.
 
 ### Other things I would add with more time
+- Clean-up of receipts that are uploaded but never confirmed: today they stay in the
+  bucket. Clients would upload to a staging prefix (`uploads/…`) with a 1-day lifecycle
+  expiry, and confirm would move the object to `receipts/` (see short answer 1).
 - A GitHub Actions workflow running ruff and pytest with Postgres and Redis services.
 - Live exchange rates from a provider (the fill script's rate function is the only place
   to change), run daily by the worker.

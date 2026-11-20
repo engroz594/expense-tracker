@@ -15,7 +15,6 @@ dependencies = [
     "pydantic>=2.14.3",
     "pydantic-settings>=2.16.3",
     "pyjwt>=2.15.1",
-    "python-multipart==0.0.34",
     "redis[hiredis]>=5.2,<6",
     "sqlalchemy[asyncio]>=2.1.9",
     "uvicorn[standard]>=0.54.0",
@@ -34,7 +33,7 @@ dev = [
 ]
 
 [tool.uv]
-# botocore (pulled in by aioboto3 -> aiobotocore) is a ~13 MB package that changes
+# botocore (pulled in by aiobotocore) is a ~13 MB package that changes
 # almost daily; pin it so every install resolves the same, already-tested version.
 constraint-dependencies = ["botocore==1.42.49"]
 

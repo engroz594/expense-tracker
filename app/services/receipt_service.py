@@ -17,10 +17,10 @@ import uuid
 from sqlalchemy import func, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.contracts.storage_client import ObjectNotFound, PresignedUpload, StorageClient
+from app.contracts.storage_client import PresignedUpload, StorageClient
 from app.core.config import settings
 from app.enums import ReceiptType
-from app.exceptions import NotFound, UnprocessableEntity
+from app.exceptions import NotFound, ObjectNotFound, UnprocessableEntity
 from app.models import Expense, User
 from app.services.expense_service import ExpenseService
 from app.services.s3_deletion_service import S3DeletionService

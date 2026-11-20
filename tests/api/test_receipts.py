@@ -11,7 +11,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.clients.storage.s3_storage_client import S3StorageClient, get_storage_client
-from app.contracts.storage_client import ObjectNotFound
+from app.exceptions import ObjectNotFound
 from app.models import Expense, PendingS3Deletion
 from app.services.s3_deletion_service import S3DeletionService
 from main import app
